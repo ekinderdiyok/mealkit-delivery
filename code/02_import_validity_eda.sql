@@ -1,8 +1,13 @@
--- Setup the database by running the following code in terminal
-/*
-sqlite3 mealkit_delivery.db
-.mode csv
-CREATE TABLE campaigns (
+
+/* Setup the database by running the following code in terminal
+    sqlite3 mealkit_delivery.db
+    .mode csv
+*/
+
+-- Drop table campaigns if exists
+DROP TABLE IF EXISTS campaigns;
+
+CREATE TABLE IF NOT EXISTS campaigns (
     campaign_id INTEGER PRIMARY KEY,
     campaign_name TEXT,
     description TEXT,
@@ -13,7 +18,9 @@ CREATE TABLE campaigns (
     channel TEXT,
     total_cost REAL
 );
-.import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/campaigns.csv campaigns
+
+/* Import data into the campaigns table
+    .import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/campaigns.csv campaigns
 */
 
 -- List all tables in the database
@@ -143,6 +150,12 @@ FROM campaigns
 GROUP BY month
 ORDER BY month;
 
+
+
+/* ===========================================================
+Events Table
+========================================================== */ 
+
 -- Drop events table if exists
 DROP TABLE IF EXISTS events;
 
@@ -165,13 +178,120 @@ WHERE type='table';
 -- Check data types of the columns
 PRAGMA table_info(events);
 
--- Import data into the events table (Run in the terminal line-by-line)
-/*
+
+/* Import data into the events table (Run in the terminal line-by-line)
     sqlite3 mealkit_delivery.db
     .mode csv
     .import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/events.csv events
 */
 
--- Check the first 5 rows of the events table
+-- Check if the import has been successful
 SELECT *
+FROM events
+LIMIT 5;
+
+-- Count the total number of rows
+SELECT COUNT(*)
 FROM events;
+
+-- Check null values
+SELECT COUNT(*)
+FROM events
+WHERE event_id IS NULL
+    OR campaign_id IS NULL
+    OR customer_id IS NULL
+    OR event_type IS NULL
+    OR event_date IS NULL
+    OR channel IS NULL;
+
+-- Ensure the events table exists before running the query
+SELECT name 
+FROM sqlite_master 
+WHERE type='table' AND name='events';
+
+-- Find the campaign with the most events
+SELECT 
+    campaign_id,
+    COUNT(*) AS total_events
+FROM events
+GROUP BY campaign_id
+ORDER BY total_events DESC
+LIMIT 1;
+
+-- Find the event types of the campaign with the most events
+SELECT 
+    event_type,
+    COUNT(*) AS n_events
+FROM events
+WHERE campaign_id = (
+    SELECT campaign_id
+    FROM events
+    GROUP BY campaign_id
+    ORDER BY COUNT(*) DESC
+    LIMIT 1
+)
+GROUP BY event_type;
+
+-- Calculate number of events per campaign
+SELECT 
+    campaign_id,
+    COUNT(*) AS total_events
+FROM events
+GROUP BY campaign_id
+ORDER BY total_events DESC;
+
+-- Using the previous query, find the name of the campaign with the most events
+SELECT 
+    campaign_id,
+    campaign_name,
+    total_events
+FROM (
+    SELECT 
+        campaign_id,
+        COUNT(*) AS total_events
+    FROM events
+    GROUP BY campaign_id
+    ORDER BY total_events DESC
+)
+JOIN campaigns USING (campaign_id)
+LIMIT 1;
+
+-- Find the moving average of the number of events per campaign
+WITH events_per_campaign AS (
+    SELECT 
+        campaign_id,
+        COUNT(*) AS total_events
+    FROM events
+    GROUP BY campaign_id
+    ORDER BY campaign_id
+),
+moving_avg AS (
+    SELECT 
+        campaign_id,
+        total_events,
+        AVG(total_events) OVER (ORDER BY campaign_id ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS moving_avg
+    FROM events_per_campaign
+)
+SELECT 
+    campaign_id,
+    total_events,
+    ROUND(moving_avg, 2) AS moving_avg
+FROM moving_avg;
+
+-- Find the campaign with the most unique customers
+SELECT 
+    campaign_id,
+    COUNT(DISTINCT customer_id) AS total_customers
+FROM events
+GROUP BY campaign_id
+ORDER BY total_customers DESC
+LIMIT 1;
+
+-- find the month of the year with the most events for the whole duration
+SELECT 
+    strftime('%m', event_date) AS month,
+    COUNT(*) AS total_events
+FROM events
+GROUP BY month
+ORDER BY total_events DESC
+LIMIT 3;
