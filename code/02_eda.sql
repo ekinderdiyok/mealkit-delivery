@@ -142,3 +142,36 @@ SELECT
 FROM campaigns
 GROUP BY month
 ORDER BY month;
+
+-- Drop events table if exists
+DROP TABLE IF EXISTS events;
+
+-- Create events table
+CREATE TABLE IF NOT EXISTS events (
+    event_id TEXT PRIMARY KEY,
+    campaign_id INTEGER,
+    customer_id INTEGER,
+    event_type TEXT,
+    event_date DATE,
+    channel TEXT,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id)
+);
+
+-- Check if table is successfully created
+SELECT name 
+FROM sqlite_master 
+WHERE type='table';
+
+-- Check data types of the columns
+PRAGMA table_info(events);
+
+-- Import data into the events table (Run in the terminal line-by-line)
+/*
+    sqlite3 mealkit_delivery.db
+    .mode csv
+    .import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/events.csv events
+*/
+
+-- Check the first 5 rows of the events table
+SELECT *
+FROM events;
