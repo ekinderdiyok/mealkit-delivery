@@ -252,10 +252,6 @@ FROM campaigns
 GROUP BY month
 ORDER BY month;
 
-
-
-
-
 -- Find the campaign with the most events
 WITH most_events_campaign AS (
     SELECT 
