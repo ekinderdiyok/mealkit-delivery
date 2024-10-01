@@ -1,8 +1,16 @@
+-- =============================================================================
+-- Setup
+-- =============================================================================
 
-/* Setup the database by running the following code in terminal
+-- Setup the database by running the following code in terminal
+/* 
     sqlite3 mealkit_delivery.db
     .mode csv
 */
+
+-- =============================================================================
+-- Create campaigns table
+-- =============================================================================
 
 -- Drop table campaigns if exists
 DROP TABLE IF EXISTS campaigns;
@@ -19,29 +27,15 @@ CREATE TABLE IF NOT EXISTS campaigns (
     total_cost REAL
 );
 
-/* Import data into the campaigns table
+--Import data into the campaigns table
+/* 
     .import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/campaigns.csv campaigns
 */
 
--- List all tables in the database
+-- Check if table is successfully created
 SELECT name 
 FROM sqlite_master 
 WHERE type='table';
-
--- Create a view to show the first 5 rows of the table
-CREATE VIEW IF NOT EXISTS campaigns_view AS
-SELECT *
-FROM campaigns
-LIMIT 5;
-
--- Show the newly created view
-SELECT *
-FROM campaigns_view;
-
--- List non-table items in the database
-SELECT name
-FROM sqlite_master
-WHERE type IN ('index', 'view');
 
 -- Check if the import has been successful
 SELECT *
@@ -51,6 +45,10 @@ LIMIT 5;
 -- Count the total number of rows
 SELECT COUNT(*)
 FROM campaigns;
+
+-- =============================================================================
+-- Data Quality Checks
+-- =============================================================================
 
 -- Check the data types of the columns
 PRAGMA table_info(campaigns);
@@ -86,35 +84,46 @@ SELECT COUNT(*)
 FROM campaigns
 WHERE start_date > DATE('now');
 
--- Summary statistics for the campaign costs per channel
+-- =============================================================================
+-- Exploratory Data Analysis
+-- =============================================================================
+
+WITH event_counts AS (
+    SELECT campaign_id, COUNT(*) AS event_count
+    FROM events
+    GROUP BY campaign_id
+)
+
 SELECT 
     channel,
     COUNT(*) AS total_campaigns,
+    
+    -- Cost summary statistics
     CAST(ROUND(AVG(total_cost)) AS INTEGER) AS avg_cost,
     MIN(total_cost) AS min_cost,
     MAX(total_cost) AS max_cost,
     ROUND(
         sqrt(AVG(total_cost * total_cost) - (AVG(total_cost) * AVG(total_cost))),
-    2) AS std_cost
-FROM campaigns
-GROUP BY channel;
+    2) AS std_cost,
 
--- Summary statistics for the campaign duration
-SELECT 
-    COUNT(*) AS total_campaigns,
+    -- Number of events summary statistics
+    AVG(ec.event_count) AS avg_events,
+    MIN(ec.event_count) AS min_events,
+    MAX(ec.event_count) AS max_events,
+    ROUND(
+        sqrt(AVG(ec.event_count * ec.event_count) - (AVG(ec.event_count) * AVG(ec.event_count))),
+    2) AS std_events,
+
+    -- Duration summary statistics
     AVG(julianday(end_date) - julianday(start_date)) AS avg_duration,
     MIN(julianday(end_date) - julianday(start_date)) AS min_duration,
     MAX(julianday(end_date) - julianday(start_date)) AS max_duration,
     ROUND(
         sqrt(AVG((julianday(end_date) - julianday(start_date)) * (julianday(end_date) - julianday(start_date))) 
         - (AVG(julianday(end_date) - julianday(start_date)) * AVG(julianday(end_date) - julianday(start_date)))),
-    2) AS std_duration
-FROM campaigns;
-
--- Find the count and percantage of campaigns within and over the budget per channel
-SELECT
-    channel,
-    COUNT(*) AS total_campaigns,
+    2) AS std_duration,
+    
+    -- Budget statistics
     SUM(CASE WHEN total_cost <= budget THEN 1 ELSE 0 END) AS n_within_budget,
     SUM(CASE WHEN total_cost > budget THEN 1 ELSE 0 END) AS n_over_budget,
     ROUND(
@@ -123,7 +132,9 @@ SELECT
     ROUND(
         100.0 * SUM(CASE WHEN total_cost > budget THEN 1 ELSE 0 END) / COUNT(*),
     2) AS pct_over_budget
+
 FROM campaigns
+LEFT JOIN event_counts ec ON campaigns.campaign_id = ec.campaign_id
 GROUP BY channel;
 
 -- Find the correlation between campaign duration and budget
@@ -152,9 +163,9 @@ ORDER BY month;
 
 
 
-/* ===========================================================
-Events Table
-========================================================== */ 
+-- ===========================================================
+-- Events Table
+-- ===========================================================
 
 -- Drop events table if exists
 DROP TABLE IF EXISTS events;
@@ -178,8 +189,8 @@ WHERE type='table';
 -- Check data types of the columns
 PRAGMA table_info(events);
 
-
-/* Import data into the events table (Run in the terminal line-by-line)
+-- Import data into the events table (Run in the terminal line-by-line)
+/* 
     sqlite3 mealkit_delivery.db
     .mode csv
     .import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/events.csv events
@@ -204,57 +215,30 @@ WHERE event_id IS NULL
     OR event_date IS NULL
     OR channel IS NULL;
 
--- Ensure the events table exists before running the query
-SELECT name 
-FROM sqlite_master 
-WHERE type='table' AND name='events';
 
--- Find the campaign with the most events
-SELECT 
-    campaign_id,
-    COUNT(*) AS total_events
-FROM events
-GROUP BY campaign_id
-ORDER BY total_events DESC
-LIMIT 1;
-
--- Find the event types of the campaign with the most events
-SELECT 
-    event_type,
-    COUNT(*) AS n_events
-FROM events
-WHERE campaign_id = (
-    SELECT campaign_id
-    FROM events
-    GROUP BY campaign_id
-    ORDER BY COUNT(*) DESC
-    LIMIT 1
-)
-GROUP BY event_type;
-
--- Calculate number of events per campaign
-SELECT 
-    campaign_id,
-    COUNT(*) AS total_events
-FROM events
-GROUP BY campaign_id
-ORDER BY total_events DESC;
-
--- Using the previous query, find the name of the campaign with the most events
-SELECT 
-    campaign_id,
-    campaign_name,
-    total_events
-FROM (
+-- Pivot the event types into separate columns
+WITH most_events_campaign AS (
+    -- Find the campaign with the most events
     SELECT 
         campaign_id,
+        campaign_name,
         COUNT(*) AS total_events
     FROM events
-    GROUP BY campaign_id
+    JOIN campaigns USING (campaign_id)
+    GROUP BY campaign_id, campaign_name
     ORDER BY total_events DESC
+    LIMIT 1
 )
-JOIN campaigns USING (campaign_id)
-LIMIT 1;
+
+SELECT 
+    me.campaign_id,
+    me.campaign_name,
+    me.total_events,
+    (SELECT COUNT(*) FROM events e WHERE e.campaign_id = me.campaign_id AND e.event_type = 'click') AS n_clicks,
+    (SELECT COUNT(*) FROM events e WHERE e.campaign_id = me.campaign_id AND e.event_type = 'signup') AS type_2_events,
+    (SELECT COUNT(*) FROM events e WHERE e.campaign_id = me.campaign_id AND e.event_type = 'impression') AS n_impressions,
+    (SELECT COUNT(*) FROM events e WHERE e.campaign_id = me.campaign_id AND e.event_type = 'type_4') AS type_4_events
+FROM most_events_campaign me;
 
 -- Find the moving average of the number of events per campaign
 WITH events_per_campaign AS (
@@ -295,3 +279,22 @@ FROM events
 GROUP BY month
 ORDER BY total_events DESC
 LIMIT 3;
+
+-- =============================================================================
+-- Non-Table Items
+-- =============================================================================
+
+-- Create a view to show the first 5 rows of the table
+CREATE VIEW IF NOT EXISTS campaigns_view AS
+SELECT *
+FROM campaigns
+LIMIT 5;
+
+-- Show the newly created view
+SELECT *
+FROM campaigns_view;
+
+-- List non-table items in the database
+SELECT name
+FROM sqlite_master
+WHERE type IN ('index', 'view');
