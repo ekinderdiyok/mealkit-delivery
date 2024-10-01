@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Preamble
 -- =============================================================================
-/*
+/* 
 
 Project: Campaign Performance
 Author: Ekin Derdiyok
@@ -327,3 +327,6 @@ FROM campaigns_view;
 SELECT name
 FROM sqlite_master
 WHERE type IN ('index', 'view');
+
+SELECT *
+FROM events;
