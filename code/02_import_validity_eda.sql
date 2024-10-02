@@ -276,9 +276,18 @@ SELECT
     total_campaigns,
 
     -- Cost summary statistics
-    CAST(ROUND(avg_budget) AS INTEGER) AS avg_budget,
-    min_budget,
-    max_budget,
+    CASE 
+        WHEN avg_budget >= 1000 THEN '€' || ROUND(avg_budget / 1000, 1) || 'K'
+        ELSE '€' || ROUND(avg_budget, 2)
+    END AS avg_budget,
+    CASE 
+        WHEN min_budget >= 1000 THEN '€' || ROUND(min_budget / 1000, 1) || 'K'
+        ELSE '€' || ROUND(min_budget, 2)
+    END AS min_budget,
+    CASE 
+        WHEN max_budget >= 1000 THEN '€' || ROUND(max_budget / 1000, 1) || 'K'
+        ELSE '€' || ROUND(max_budget, 2)
+    END AS max_budget,
     ROUND(SQRT(avg_budget_squared - POWER(avg_budget, 2)), 2) AS std_budget,
 
     -- Number of events summary statistics
@@ -291,13 +300,7 @@ SELECT
     avg_duration,
     min_duration,
     max_duration,
-    ROUND(SQRT(avg_duration_squared - POWER(avg_duration, 2)), 2) AS std_duration,
-
-    -- Budget statistics
-    n_within_budget,
-    n_over_budget,
-    ROUND(100.0 * n_within_budget / total_campaigns, 2) AS pct_within_budget,
-    ROUND(100.0 * n_over_budget / total_campaigns, 2) AS pct_over_budget
+    ROUND(SQRT(avg_duration_squared - POWER(avg_duration, 2)), 2) AS std_duration
 
 FROM campaign_stats;
 
@@ -305,25 +308,26 @@ FROM campaign_stats;
 WITH stats AS (
     SELECT 
         AVG(julianday(end_date) - julianday(start_date)) AS avg_duration,
-        AVG(total_cost) AS avg_cost,
-        SUM((julianday(end_date) - julianday(start_date) - (SELECT AVG(julianday(end_date) - julianday(start_date)) FROM campaigns)) * (total_cost - (SELECT AVG(total_cost) FROM campaigns))) AS covariance,
+        AVG(budget) AS avg_budget,
+        SUM((julianday(end_date) - julianday(start_date) - (SELECT AVG(julianday(end_date) - julianday(start_date)) FROM campaigns)) * (budget - (SELECT AVG(budget) FROM campaigns))) AS covariance,
         SUM((julianday(end_date) - julianday(start_date) - (SELECT AVG(julianday(end_date) - julianday(start_date)) FROM campaigns)) * (julianday(end_date) - julianday(start_date) - (SELECT AVG(julianday(end_date) - julianday(start_date)) FROM campaigns))) AS variance_duration,
-        SUM((total_cost - (SELECT AVG(total_cost) FROM campaigns)) * (total_cost - (SELECT AVG(total_cost) FROM campaigns))) AS variance_cost
+        SUM((budget - (SELECT AVG(budget) FROM campaigns)) * (budget - (SELECT AVG(budget) FROM campaigns))) AS variance_budget
     FROM campaigns
 )
 SELECT 
-    ROUND(
-        covariance / (sqrt(variance_duration) * sqrt(variance_cost)),
-    2) AS correlation
+    covariance / (sqrt(variance_duration) * sqrt(variance_budget)) AS correlation
 FROM stats;
 
--- Trend analysis for the total cost per month
+-- Trend analysis for the total cost per year
 SELECT 
-    strftime('%Y-%m', start_date) AS month,
-    SUM(total_cost) AS total_cost
+    strftime('%Y', start_date) AS year,
+    CASE 
+        WHEN SUM(budget) >= 1000 THEN '€' || ROUND(SUM(budget) / 1000) || 'K'
+        ELSE '€' || ROUND(SUM(budget))
+    END AS annual_budget
 FROM campaigns
-GROUP BY month
-ORDER BY month;
+GROUP BY year
+ORDER BY year;
 
 -- Find the campaign with the most events
 WITH most_events_campaign AS (
@@ -343,44 +347,32 @@ SELECT
     me.campaign_name,
     me.total_events,
     SUM(CASE WHEN TRIM(LOWER(e.event_type)) = 'click' THEN 1 ELSE 0 END) AS n_clicks,
-    SUM(CASE WHEN TRIM(LOWER(e.event_type)) = 'signup' THEN 1 ELSE 0 END) AS n_signups,
-    SUM(CASE WHEN TRIM(LOWER(e.event_type)) = 'impression' THEN 1 ELSE 0 END) AS n_impressions,
-    SUM(CASE WHEN TRIM(LOWER(e.event_type)) = 'page_view' THEN 1 ELSE 0 END) AS n_page_views,
-    SUM(CASE WHEN TRIM(LOWER(e.event_type)) = 'conversion' THEN 1 ELSE 0 END) AS n_conversions
+    SUM(CASE WHEN TRIM(LOWER(e.event_type)) = 'subscribe' THEN 1 ELSE 0 END) AS n_signups
 FROM most_events_campaign me
 LEFT JOIN events e ON me.campaign_id = e.campaign_id
 GROUP BY me.campaign_id, me.campaign_name, me.total_events;
 
--- Find the moving average of the number of events per month
-WITH events_per_month AS (
+-- Find the moving average of the number of events per quarter
+WITH events_per_quarter AS (
     SELECT 
-        strftime('%Y-%m', event_date) AS month,
-        COUNT(*) AS total_events
+        strftime('%Y', event_date) || '-Q' || ((strftime('%m', event_date) - 1) / 3 + 1) AS quarter,
+        COUNT(*) AS n_events
     FROM events
-    GROUP BY month
-    ORDER BY month
+    GROUP BY quarter
+    ORDER BY quarter
 ),
-ma3m_n_events AS (
+ma3q_n_events AS (
     SELECT 
-        month,
-        total_events,
-        AVG(total_events) OVER (ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS ma3m_n_events
-    FROM events_per_month
+        quarter,
+        n_events,
+        AVG(n_events) OVER (ORDER BY quarter ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS ma3q_n_events
+    FROM events_per_quarter
 )
 SELECT 
-    month,
-    total_events,
-    ROUND(ma3m_n_events, 2) AS ma3m_n_events
-FROM ma3m_n_events;
-
--- Find the month of the year with the most events for the whole duration
-SELECT 
-    strftime('%m', event_date) AS month,
-    COUNT(*) AS total_events
-FROM events
-GROUP BY month
-ORDER BY total_events DESC
-LIMIT 3;
+    quarter,
+    n_events,
+    ROUND(ma3q_n_events, 2) AS ma3q_n_events
+FROM ma3q_n_events;
 
 -- =============================================================================
 -- KPIs
@@ -421,13 +413,6 @@ SELECT
     ROUND(100.0 * n_retained_subscriptions / n_subscriptions, 2) AS retention_rate
 FROM retention_rate;
 
--- Calculate total campaign budget
-SELECT SUM(budget) AS total_budget
-FROM campaigns;
-
--- Calculate total number of subscribers
-SELECT COUNT(DISTINCT subscription_id) AS total_subscribers;
-
 -- Calculate customer acquisition cost (CAC) by dividing total campaign budget by the number of subscribers
 SELECT 
     total_budget,
@@ -457,7 +442,7 @@ arpu AS (
 )
 
 SELECT 
-    ROUND(AVG(total_revenue), 2) AS arpu
+    '€' || ROUND(AVG(total_revenue), 2) AS arpu
 FROM arpu;
 
 -- Temporarily replace NULLs in the end_date with today's date and calculate average customer lifespan in weeks
@@ -635,25 +620,3 @@ SELECT
     n_subscribes,
     ROUND(100.0 * n_subscribes / NULLIF(n_clicks, 0), 2) AS conversion_rate
 FROM conversion_rate;
-
--- =============================================================================
--- Miscellaneous
--- =============================================================================
-
--- Create a view to show the first 5 rows of the table
-CREATE VIEW IF NOT EXISTS campaigns_view AS
-SELECT *
-FROM campaigns
-LIMIT 5;
-
--- Show the newly created view
-SELECT *
-FROM campaigns_view;
-
--- List non-table items in the database
-SELECT name
-FROM sqlite_master
-WHERE type IN ('index', 'view');
-
-SELECT *
-FROM events;
