@@ -1,8 +1,8 @@
 -- =============================================================================
 -- Preamble
 -- =============================================================================
-/* 
 
+/* 
 Project: Campaign Performance
 Author: Ekin Derdiyok
 Contact: ekin.derdiyok@icloud.com
@@ -32,9 +32,6 @@ Table of Contents:
 4. Subscriptions Table
 5. Exploratory Data Analysis
 6. Key Performance Indicators (KPIs)
-7. Miscellaneous
-
-
 */
 
 -- =============================================================================
