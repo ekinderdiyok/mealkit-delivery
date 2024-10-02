@@ -25,10 +25,20 @@ Dependencies:
 - Command Line: SQLite3 tool must be installed
 - File Path: Ensure the data files are in the correct directory
 
+Table of Contents:
+1. Database Setup
+2. Campaigns Table
+3. Events Table
+4. Subscriptions Table
+5. Exploratory Data Analysis
+6. Key Performance Indicators (KPIs)
+7. Miscellaneous
+
+
 */
 
 -- =============================================================================
--- Setup
+-- 1. Database Setup
 -- =============================================================================
 
 -- Setup the database by running the following code in terminal
@@ -37,7 +47,7 @@ Dependencies:
 */
 
 -- =============================================================================
--- Create campaigns table, import data, and perform data quality checks
+-- Campaigns Table
 -- =============================================================================
 
 -- Drop table campaigns if exists
@@ -47,8 +57,8 @@ DROP TABLE IF EXISTS campaigns;
 CREATE TABLE IF NOT EXISTS campaigns (
     campaign_id INTEGER PRIMARY KEY,
     campaign_name TEXT,
-    start_date DATE,
-    end_date DATE,
+    start_date TEXT,
+    end_date TEXT,
     budget REAL,
     target_audience TEXT,
     channel TEXT
@@ -56,6 +66,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
 
 --Import data into the campaigns table
 /* 
+    sqlite3 /Users/ekin/Documents/Projects/mealkit-delivery/data/mealkit_delivery.db
     .mode csv
     .import /Users/ekin/Documents/Projects/mealkit-delivery/data/campaigns.csv campaigns
 */
@@ -109,7 +120,7 @@ FROM campaigns
 WHERE start_date > DATE('now');
 
 -- ===========================================================
--- Create events table, import data, and perform data quality checks
+-- Events Table
 -- ===========================================================
 
 -- Drop events table if exists
@@ -137,8 +148,8 @@ PRAGMA table_info(events);
 
 -- Import data into the events table (Run in the terminal line-by-line)
 /* 
+    sqlite3 /Users/ekin/Documents/Projects/mealkit-delivery/data/mealkit_delivery.db
     .mode csv
-    sqlite3 mealkit_delivery.db
     .import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/events.csv events
 */
 
@@ -169,7 +180,7 @@ WHERE
     OR subscription_id IS NULL;
 
 -- =============================================================================
--- SUBSCRIPTIONS TABLE
+-- Subscriptions Table
 -- =============================================================================
 
 -- Drop subscriptions table if it exists
@@ -186,19 +197,26 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     food_choice TEXT
 );
 
+-- Check the list of tables in the database
+SELECT name
+FROM sqlite_master
+WHERE type='table';
+
+-- Check the data types of the columns
+PRAGMA table_info(subscriptions);
 
 -- Import data into the events table (Run in the terminal line-by-line)
 /* 
-    sqlite3 mealkit_delivery.db
+    sqlite3 /Users/ekin/Documents/Projects/mealkit-delivery/data/mealkit_delivery.db
     .mode csv
     .import /Users/ekin/Documents/Projects/mealkit-delivery/data/subscriptions.csv subscriptions
 */
 
--- Data quality checks
--- Check for null values in critical columns
+-- Check for null values
 SELECT COUNT(*)
 FROM subscriptions
-WHERE subscription_id IS NULL
+WHERE 
+    subscription_id IS NULL
     OR subscription_date IS NULL
     OR n_meals IS NULL
     OR n_people IS NULL
@@ -231,10 +249,10 @@ campaign_stats AS (
     SELECT 
         channel,
         COUNT(*) AS total_campaigns,
-        AVG(total_cost) AS avg_cost,
-        AVG(POWER(total_cost, 2)) AS avg_cost_squared,
-        MIN(total_cost) AS min_cost,
-        MAX(total_cost) AS max_cost,
+        AVG(budget) AS avg_budget,
+        AVG(POWER(budget, 2)) AS avg_budget_squared,
+        MIN(budget) AS min_budget,
+        MAX(budget) AS max_budget,
         
         AVG(ec.event_count) AS avg_event_count,
         AVG(ec.event_count * ec.event_count) AS avg_event_count_squared,
@@ -246,8 +264,8 @@ campaign_stats AS (
         MIN(julianday(end_date) - julianday(start_date)) AS min_duration,
         MAX(julianday(end_date) - julianday(start_date)) AS max_duration,
 
-        SUM(CASE WHEN total_cost <= budget THEN 1 ELSE 0 END) AS n_within_budget,
-        SUM(CASE WHEN total_cost > budget THEN 1 ELSE 0 END) AS n_over_budget
+        SUM(CASE WHEN budget <= budget THEN 1 ELSE 0 END) AS n_within_budget,
+        SUM(CASE WHEN budget > budget THEN 1 ELSE 0 END) AS n_over_budget
     FROM campaigns
     LEFT JOIN event_counts ec ON campaigns.campaign_id = ec.campaign_id
     GROUP BY channel
@@ -258,10 +276,10 @@ SELECT
     total_campaigns,
 
     -- Cost summary statistics
-    CAST(ROUND(avg_cost) AS INTEGER) AS avg_cost,
-    min_cost,
-    max_cost,
-    ROUND(SQRT(avg_cost_squared - POWER(avg_cost, 2)), 2) AS std_cost,
+    CAST(ROUND(avg_budget) AS INTEGER) AS avg_budget,
+    min_budget,
+    max_budget,
+    ROUND(SQRT(avg_budget_squared - POWER(avg_budget, 2)), 2) AS std_budget,
 
     -- Number of events summary statistics
     avg_event_count AS avg_events,
@@ -365,28 +383,6 @@ ORDER BY total_events DESC
 LIMIT 3;
 
 -- =============================================================================
--- Non-Table Items
--- =============================================================================
-
--- Create a view to show the first 5 rows of the table
-CREATE VIEW IF NOT EXISTS campaigns_view AS
-SELECT *
-FROM campaigns
-LIMIT 5;
-
--- Show the newly created view
-SELECT *
-FROM campaigns_view;
-
--- List non-table items in the database
-SELECT name
-FROM sqlite_master
-WHERE type IN ('index', 'view');
-
-SELECT *
-FROM events;
-
--- =============================================================================
 -- KPIs
 -- =============================================================================
 
@@ -447,20 +443,217 @@ FROM (
     FROM subscriptions
 ) AS subscriber_data;
 
--- Average revenue per user (ARPU)
+-- Average (weekly) revenue per user (ARPU)
 WITH price_per_meal_param AS (
     SELECT 6 AS price -- You can change the price here
 ),
 
-revenue_per_user AS (
+arpu AS (
     SELECT 
         subscription_id,
-        SUM(n_orders * n_meals * (SELECT price FROM price_per_meal_param)) AS total_revenue
+        SUM(n_people * n_meals * (SELECT price FROM price_per_meal_param)) AS total_revenue
     FROM subscriptions
     GROUP BY subscription_id
 )
 
 SELECT 
     ROUND(AVG(total_revenue), 2) AS arpu
-FROM revenue_per_user;
+FROM arpu;
 
+-- Temporarily replace NULLs in the end_date with today's date and calculate average customer lifespan in weeks
+WITH customer_lifespan AS (
+    SELECT 
+        subscription_id,
+        (julianday(
+            COALESCE(end_date, DATE('now'))
+        ) - julianday(subscription_date)) / 7.0 AS lifespan_weeks
+    FROM subscriptions
+    GROUP BY subscription_id
+)
+
+SELECT 
+    ROUND(AVG(lifespan_weeks), 2) AS avg_lifespan_weeks
+FROM customer_lifespan;
+
+-- Calculate customer lifetime value (CLV) by multiplying weekly ARPU by the number of weeks in the average customer lifespan
+WITH price_per_meal_param AS (
+    SELECT 6 AS price -- You can change the price here
+),
+
+arpu AS (
+    SELECT 
+        subscription_id,
+        SUM(n_people * n_meals * (SELECT price FROM price_per_meal_param)) AS total_revenue
+    FROM subscriptions
+    GROUP BY subscription_id
+),
+
+customer_lifespan AS (
+    SELECT 
+        subscription_id,
+        (julianday(
+            COALESCE(end_date, DATE('now'))
+        ) - julianday(subscription_date)) / 7.0 AS lifespan_weeks
+    FROM subscriptions
+    GROUP BY subscription_id
+)
+
+SELECT 
+    ROUND(AVG(total_revenue), 2) AS weekly_arpu,
+    ROUND(AVG(lifespan_weeks), 2) AS avg_lifespan_weeks,
+    ROUND(AVG(total_revenue) * AVG(lifespan_weeks), 2) AS clv
+FROM arpu, customer_lifespan;
+
+-- Calculate customer lifetime value (CLV) divided by customer acquisition cost (CAC)
+WITH price_per_meal_param AS (
+    SELECT 6 AS price -- You can change the price here
+),
+
+arpu AS (
+    SELECT 
+        subscription_id,
+        SUM(n_people * n_meals * (SELECT price FROM price_per_meal_param)) AS total_revenue
+    FROM subscriptions
+    GROUP BY subscription_id
+),
+
+customer_lifespan AS (
+    SELECT 
+        subscription_id,
+        (julianday(
+            COALESCE(end_date, DATE('now'))
+        ) - julianday(subscription_date)) / 7.0 AS lifespan_weeks
+    FROM subscriptions
+    GROUP BY subscription_id
+),
+
+budget_data AS (
+    SELECT 
+        SUM(budget) AS total_budget
+    FROM campaigns
+),
+
+subscriber_data AS (
+    SELECT 
+        COUNT(DISTINCT subscription_id) AS total_subscribers
+    FROM subscriptions
+)
+
+SELECT 
+    ROUND(AVG(total_revenue) * AVG(lifespan_weeks) / (SELECT total_budget / total_subscribers FROM budget_data, subscriber_data), 2) AS clv_cac_ratio
+FROM arpu, customer_lifespan;
+
+-- Year-over-year subscriber growth rate
+
+WITH subscriber_growth AS (
+    SELECT 
+        strftime('%Y', subscription_date) AS year,
+        COUNT(DISTINCT subscription_id) AS n_subscribers
+    FROM subscriptions
+    GROUP BY year
+    ORDER BY year
+)
+
+SELECT 
+    year,
+    n_subscribers,
+    (n_subscribers - LAG(n_subscribers, 1) OVER (ORDER BY year)) AS new_subscribers,
+    ROUND(100.0 * (n_subscribers - LAG(n_subscribers, 1) OVER (ORDER BY year)) / NULLIF(LAG(n_subscribers, 1) OVER (ORDER BY year), 0), 2) AS growth_rate
+FROM subscriber_growth;
+
+-- Find the number of subscriber_id for each campaign in the events table
+WITH campaign_subscribers AS (
+    SELECT 
+        campaign_id,
+        COUNT(DISTINCT subscription_id) AS n_subscribers
+    FROM events
+    GROUP BY campaign_id
+)
+
+SELECT 
+    campaign_id,
+    n_subscribers
+FROM campaign_subscribers
+ORDER BY n_subscribers DESC
+LIMIT 5;
+
+-- Find the total revenue generated by each campaign by joining the events and subscriptions tables
+WITH campaign_revenue AS (
+    SELECT 
+        e.campaign_id,
+        SUM(s.n_people * s.n_meals * 6 * (julianday(COALESCE(s.end_date, DATE('now'))) - julianday(s.subscription_date)) / 7.0) AS total_revenue
+    FROM events e
+    JOIN subscriptions s ON e.subscription_id = s.subscription_id
+    GROUP BY e.campaign_id
+)
+
+SELECT 
+    c.campaign_id,
+    c.campaign_name,
+    CASE 
+        WHEN cr.total_revenue >= 1000 THEN '€' || ROUND(cr.total_revenue / 1000, 1) || 'k'
+        ELSE '€' || ROUND(cr.total_revenue, 2)
+    END AS total_revenue
+FROM campaigns c
+LEFT JOIN campaign_revenue cr ON c.campaign_id = cr.campaign_id
+ORDER BY cr.total_revenue DESC
+LIMIT 5;
+
+-- Calculate conversion rate for each channel dividing the number of "subscribe" to the number of "click" events
+WITH conversion_rate AS (
+    SELECT 
+        channel,
+        COUNT(CASE WHEN TRIM(LOWER(event_type)) = 'click' THEN 1 END) AS n_clicks,
+        COUNT(CASE WHEN TRIM(LOWER(event_type)) = 'subscribe' THEN 1 END) AS n_subscribes
+    FROM events
+    GROUP BY channel
+)
+
+SELECT 
+    channel,
+    n_clicks,
+    n_subscribes,
+    ROUND(100.0 * n_subscribes / NULLIF(n_clicks, 0), 2) AS conversion_rate
+FROM conversion_rate;
+
+-- Calculate the conversion rate across different channel x audience combinations
+WITH conversion_rate AS (
+    SELECT 
+        e.channel,
+        c.target_audience,
+        COUNT(CASE WHEN TRIM(LOWER(e.event_type)) = 'click' THEN 1 END) AS n_clicks,
+        COUNT(CASE WHEN TRIM(LOWER(e.event_type)) = 'subscribe' THEN 1 END) AS n_subscribes
+    FROM events e
+    JOIN campaigns c ON e.campaign_id = c.campaign_id
+    GROUP BY e.channel, c.target_audience
+)
+
+SELECT 
+    channel,
+    target_audience,
+    n_clicks,
+    n_subscribes,
+    ROUND(100.0 * n_subscribes / NULLIF(n_clicks, 0), 2) AS conversion_rate
+FROM conversion_rate;
+
+-- =============================================================================
+-- Miscellaneous
+-- =============================================================================
+
+-- Create a view to show the first 5 rows of the table
+CREATE VIEW IF NOT EXISTS campaigns_view AS
+SELECT *
+FROM campaigns
+LIMIT 5;
+
+-- Show the newly created view
+SELECT *
+FROM campaigns_view;
+
+-- List non-table items in the database
+SELECT name
+FROM sqlite_master
+WHERE type IN ('index', 'view');
+
+SELECT *
+FROM events;
