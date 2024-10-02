@@ -169,7 +169,7 @@ WHERE
     OR subscription_id IS NULL;
 
 -- =============================================================================
--- Create subscriptions table, import data, and perform data quality checks
+-- SUBSCRIPTIONS TABLE
 -- =============================================================================
 
 -- Drop subscriptions table if it exists
@@ -210,6 +210,11 @@ SELECT subscription_id, COUNT(*)
 FROM subscriptions
 GROUP BY subscription_id
 HAVING COUNT(*) > 1;
+
+-- Replace empty strings with NULL values in the end_date column
+UPDATE subscriptions
+SET end_date = NULL
+WHERE end_date = '';
 
 
 -- =============================================================================
@@ -380,3 +385,66 @@ WHERE type IN ('index', 'view');
 
 SELECT *
 FROM events;
+
+-- =============================================================================
+-- KPIs
+-- =============================================================================
+
+-- Calculate churn rate across different food choices
+WITH churn_rate AS (
+    SELECT 
+        food_choice,
+        COUNT(DISTINCT subscription_id) AS n_subscriptions,
+        COUNT(DISTINCT CASE WHEN end_date IS NOT NULL THEN subscription_id END) AS n_churned_subscriptions
+    FROM subscriptions
+    GROUP BY food_choice
+)
+
+SELECT 
+    food_choice,
+    n_subscriptions,
+    n_churned_subscriptions,
+    ROUND(100.0 * n_churned_subscriptions / n_subscriptions, 2) AS churn_rate
+FROM churn_rate;
+
+-- Calculate retention rate over years
+WITH retention_rate AS (
+    SELECT 
+        strftime('%Y', subscription_date) AS year,
+        COUNT(DISTINCT subscription_id) AS n_subscriptions,
+        COUNT(DISTINCT CASE WHEN end_date IS NULL THEN subscription_id END) AS n_retained_subscriptions
+    FROM subscriptions
+    WHERE strftime('%Y', subscription_date) <= '2025'
+    GROUP BY year
+)
+
+SELECT 
+    year,
+    n_subscriptions,
+    n_retained_subscriptions,
+    ROUND(100.0 * n_retained_subscriptions / n_subscriptions, 2) AS retention_rate
+FROM retention_rate;
+
+-- Calculate total campaign budget
+SELECT SUM(budget) AS total_budget
+FROM campaigns;
+
+-- Calculate total number of subscribers
+SELECT COUNT(DISTINCT subscription_id) AS total_subscribers;
+
+-- Calculate customer acquisition cost (CAC) by dividing total campaign budget by the number of subscribers
+SELECT 
+    total_budget,
+    total_subscribers,
+    ROUND(total_budget / total_subscribers, 2) AS cac
+FROM (
+    SELECT 
+        SUM(budget) AS total_budget
+    FROM campaigns
+) AS budget_data, (
+    SELECT 
+        COUNT(DISTINCT subscription_id) AS total_subscribers
+    FROM subscriptions
+) AS subscriber_data;
+
+
