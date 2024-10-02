@@ -33,8 +33,7 @@ Dependencies:
 
 -- Setup the database by running the following code in terminal
 /* 
-    sqlite3 mealkit_delivery.db
-    .mode csv
+    sqlite3 /Users/ekin/Documents/Projects/mealkit-delivery/data/mealkit_delivery.db
 */
 
 -- =============================================================================
@@ -48,18 +47,17 @@ DROP TABLE IF EXISTS campaigns;
 CREATE TABLE IF NOT EXISTS campaigns (
     campaign_id INTEGER PRIMARY KEY,
     campaign_name TEXT,
-    description TEXT,
     start_date DATE,
     end_date DATE,
     budget REAL,
     target_audience TEXT,
-    channel TEXT,
-    total_cost REAL
+    channel TEXT
 );
 
 --Import data into the campaigns table
 /* 
-    .import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/campaigns.csv campaigns
+    .mode csv
+    .import /Users/ekin/Documents/Projects/mealkit-delivery/data/campaigns.csv campaigns
 */
 
 -- Check if table is successfully created
@@ -121,10 +119,11 @@ DROP TABLE IF EXISTS events;
 CREATE TABLE IF NOT EXISTS events (
     event_id TEXT PRIMARY KEY,
     campaign_id INTEGER,
-    customer_id INTEGER,
+    lead_id INTEGER,
     event_type TEXT,
     event_date DATE,
     channel TEXT,
+    subscription_id INTEGER,
     FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id)
 );
 
@@ -138,8 +137,8 @@ PRAGMA table_info(events);
 
 -- Import data into the events table (Run in the terminal line-by-line)
 /* 
-    sqlite3 mealkit_delivery.db
     .mode csv
+    sqlite3 mealkit_delivery.db
     .import --skip 1 /Users/ekin/Documents/Projects/mealkit-delivery/data/events.csv events
 */
 
@@ -152,15 +151,66 @@ LIMIT 5;
 SELECT COUNT(*)
 FROM events;
 
+-- Convert empty strings into null values in subscription_id column
+UPDATE events
+SET subscription_id = NULL
+WHERE subscription_id = '';
+
 -- Check null values
 SELECT COUNT(*)
 FROM events
-WHERE event_id IS NULL
+WHERE 
+    event_id IS NULL
     OR campaign_id IS NULL
-    OR customer_id IS NULL
+    OR lead_id IS NULL
     OR event_type IS NULL
     OR event_date IS NULL
-    OR channel IS NULL;
+    OR channel IS NULL
+    OR subscription_id IS NULL;
+
+-- =============================================================================
+-- Create subscriptions table, import data, and perform data quality checks
+-- =============================================================================
+
+-- Drop subscriptions table if it exists
+DROP TABLE IF EXISTS subscriptions;
+
+-- Create subscriptions table
+CREATE TABLE IF NOT EXISTS subscriptions (
+    subscription_id INTEGER PRIMARY KEY,
+    subscription_date TEXT, -- Store as ISO8601 string
+    end_date TEXT,          -- Store as ISO8601 string
+    n_meals INTEGER,
+    n_people INTEGER,
+    n_orders INTEGER,
+    food_choice TEXT
+);
+
+
+-- Import data into the events table (Run in the terminal line-by-line)
+/* 
+    sqlite3 mealkit_delivery.db
+    .mode csv
+    .import /Users/ekin/Documents/Projects/mealkit-delivery/data/subscriptions.csv subscriptions
+*/
+
+-- Data quality checks
+-- Check for null values in critical columns
+SELECT COUNT(*)
+FROM subscriptions
+WHERE subscription_id IS NULL
+    OR subscription_date IS NULL
+    OR n_meals IS NULL
+    OR n_people IS NULL
+    OR n_orders IS NULL
+    OR food_choice IS NULL;
+
+-- Check for duplicate subscription_id
+SELECT subscription_id, COUNT(*)
+FROM subscriptions
+GROUP BY subscription_id
+HAVING COUNT(*) > 1;
+
 
 -- =============================================================================
 -- Exploratory Data Analysis
