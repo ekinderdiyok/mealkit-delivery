@@ -447,4 +447,20 @@ FROM (
     FROM subscriptions
 ) AS subscriber_data;
 
+-- Average revenue per user (ARPU)
+WITH price_per_meal_param AS (
+    SELECT 6 AS price -- You can change the price here
+),
+
+revenue_per_user AS (
+    SELECT 
+        subscription_id,
+        SUM(n_orders * n_meals * (SELECT price FROM price_per_meal_param)) AS total_revenue
+    FROM subscriptions
+    GROUP BY subscription_id
+)
+
+SELECT 
+    ROUND(AVG(total_revenue), 2) AS arpu
+FROM revenue_per_user;
 
