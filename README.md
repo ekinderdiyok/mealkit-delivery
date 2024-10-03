@@ -18,6 +18,22 @@
 
 **Recommendations:** Marketing analytics team should conduct cohort studies to understand the churn patterns and customer lifetime value of customer acquired through different channels or demographics. This should lead to more cost effective and efficient marketing campaigns.
 
+## Folder Structure
+```
+└── 📁mealkit-delivery
+    └── 📁code
+        └── 01_generate_data.ipynb
+        └── 02_eda_kpi.sql
+    └── 📁data
+        └── campaigns.csv
+        └── events.csv
+        └── mealkit_delivery.db
+        └── subscriptions.csv
+    └── 📁tableau
+        └── mealkit-delivery.twbx
+    └── README.md
+```
+
 ## Author and Contact
 **Author:** Ekin Derdiyok <br>
 **Email:** ekin.derdiyok@icloud.com <br>
